@@ -1,0 +1,516 @@
+---
+title: "MIMIC III Lung and Respiratory Cancer Cohort"
+author: Daniel Jaso
+output:
+  pdf_document: default
+  html_document: default
+
+---
+
+```{r, echo = FALSE, include=FALSE}
+suppressMessages(library(caret))
+suppressMessages(library(rpart.plot))
+suppressMessages(library(pROC))
+suppressMessages(library(randomForest))
+suppressMessages(library(ggplot2))
+suppressMessages(library(DMwR))
+suppressMessages(library(corrplot))
+options(warn=1)
+```
+
+# Description 
+
+Design a dataset from MIMIC III for the use of clinical trials on lung cancer immunotherapeutic drugs. We will include cancer patients within a certain age both genders, all ethnicities, all insurance types, and all ICD-9 diagnosis codes that include variations of commonly assigned lung cancer (162.0, 162.2, 162.3, 162.4,  162.5, 162.8, 162.9, 197.0,  231.2,  23.57, 239.1)   We will also include exclusions on comorbidities with Addison’s Disease, Thyroiditis, or HIV-AIDS as a measure to exclude uncontrolled responses to new immunotherapies. Furthermore, we will exclude patients that have undergone radiotherapeutic treatments. In addition to this, we took into account laboratory measures with regards to 'Bicarbonate', 'Red Blood Cells', 'White Blood Cells', 'Platelet Count', 'Oxygen Saturation','pH') or LOINC codes 1963-8, 789-8, 804-5, 777-3, 20564-1, 11558-4.
+
+
+# Data Summary
+```{r, include=FALSE, echo=FALSE}
+lung <- read.table('/Users/student1/Downloads/Lung_Resp_Cancer_Cohort_V2.csv',  
+                   header = T, stringsAsFactors = T, sep = ',')
+
+colnames(lung)
+names(lung) <- c("subject_id","icd9_list" ,"loinc_code" ,"min_value" , "max_value",
+                 "patient_age","gender",  "ethnicity" , "insurance","los", 
+                 "has_chemo","has_radio","has_cancer","deceased_status" )
+```
+
+
+```{r}
+dim(lung)
+colnames(lung)
+summary(lung)
+
+
+```
+
+# Exploratory Data Analysis (EDA)
+```{r, echo=FALSE, include=FALSE}
+table(lung$gender)
+table(lung$patient_age)
+table(lung$ethnicity)
+table(lung$insurance)
+table(lung$deceased_status)
+
+table(lung$has_chemo)
+table(lung$has_radio)
+table(lung$los)
+```
+
+## Gender Distribution
+```{r, echo=FALSE}
+lung_eda <- lung
+# table(lung_eda$gender)
+
+lung_eda$min_value <- as.numeric(lung_eda$min_value)
+lung_eda$max_value <- as.numeric(lung_eda$max_value)
+
+
+ggplot(data=lung_eda, aes(x= gender, fill = gender)) + 
+  geom_bar(stat="count")  + 
+  labs(y = "frecuency") +
+  scale_fill_manual("Gender", values = c("F" = "Red", "M" = "Blue")) +
+  ggtitle("Gender Distribution")
+
+
+```
+
+## Age Distribution
+```{r, include=FALSE, message=FALSE}
+table(lung_eda$patient_age)
+lung_eda$patient_age <- ifelse(lung_eda$patient_age > 89, 
+                               median(lung_eda$patient_age), 
+                               lung_eda$patient_age)
+
+lung$patient_age <- lung_eda$patient_age
+
+ggplot(data=lung_eda, aes(x= patient_age, fill = gender)) + 
+  geom_histogram(stat="count", binwidth = 20, bins = 40)  + 
+  labs(y = "frecuency") +
+  ggtitle("Age Distribution") +
+  scale_fill_manual("Gender", values = c("F" = "Red", "M" = "Blue")) +
+  ggtitle("Age Distribution with Gender")
+
+```
+
+
+
+
+## Ethnicity Distribution
+```{r, echo=FALSE}
+
+top_20 <- sort(lung_eda$ethnicity, index.return=TRUE, decreasing=TRUE)[1:20]
+
+ggplot(data=lung_eda, aes(x= lung_eda$ethnicity %in% top_20, fill = ethnicity)) + 
+  geom_bar(stat="count")  + 
+  labs(y = "frecuency") +
+  ggtitle("Ethnicity Distribution")
+
+
+
+
+```
+
+## Insurance Distribution
+```{r, echo=FALSE}
+
+# table(lung_eda$insurance)
+ggplot(data=lung_eda, aes(x= insurance, fill = insurance)) + 
+  geom_bar(stat="count")  + 
+  labs(y = "frecuency") +
+  ggtitle("Insurance Distribution")
+
+```
+
+
+
+## LOINC Code Distribution
+```{r, echo=FALSE}
+
+# table(lung_eda$insurance)
+ggplot(data=lung_eda, aes(x= loinc_code, fill = loinc_code)) + 
+  geom_bar(stat="count")  + 
+  labs(y = "frecuency") +
+  ggtitle("LOINC Code Distribution")
+
+```
+
+
+## Patient Chemotherapy Distribution
+```{r, echo=FALSE}
+
+lung_eda$has_chemo <- as.factor(lung_eda$has_chemo)
+# table(lung_eda$has_chemo)
+ggplot(data=lung_eda, aes(x= has_chemo,  fill = has_chemo)) + 
+  geom_bar(stat="count")  + 
+  labs(y = "frecuency") +
+  scale_fill_manual("has_chemo", values = c("1" = "Red", "0" = "Blue")) +
+  ggtitle("Patient Chemotherapy Distribution")
+
+
+```
+
+## Patient Radiotherapy Distribution
+```{r, echo=FALSE}
+
+lung_eda$has_radio <- as.factor(lung_eda$has_radio)
+# table(lung_eda$has_radio)
+ggplot(data=lung_eda, aes(x= has_radio, fill = has_radio)) + 
+  geom_bar(stat="count")  + 
+  labs(y = "frecuency") +
+  scale_fill_manual("has_radio", values = c("1" = "Red", "0" = "Blue")) + 
+    ggtitle("Patient Radiotherapy Distribution")
+
+  
+
+```
+
+## Patient Decesed Status Distribution
+```{r, echo=FALSE}
+
+lung_eda$deceased_status <- as.factor(lung_eda$deceased_status)
+# table(lung_eda$deceased_status)
+ggplot(data=lung_eda, aes(x= deceased_status,
+                          fill = deceased_status))+ 
+                          geom_bar(stat="count")  + 
+                          labs(y = "frecuency") +
+                          scale_fill_manual("deceased_status", 
+                                            values = c("1" = "Red", "0" = "Blue")) +
+  ggtitle("Patient Decesead Status Distribution")
+
+```
+
+
+\newpage
+
+# Fix imbalance data for deceased_status
+```{r}
+
+lung$deceased_status <- as.factor(lung$deceased_status)
+
+new <- SMOTE(form = deceased_status ~ ., data = lung, perc.over = 100)
+table(new$deceased_status)
+```
+
+# Train/Test Split (70/30)
+```{r}
+lung2 <- new[, c(3, 4:7, 9:12,14)]
+colnames(lung2)
+lung2$deceased_status <- factor(lung2$deceased_status)
+
+
+intrain <- createDataPartition(y = lung2$deceased_status, p= 0.7, list = FALSE)
+training <- lung2[intrain,]
+testing <- lung2[-intrain,]
+dim(training); dim(testing)
+```
+
+
+
+
+```{r, echo=FALSE, include=FALSE}
+
+table(training$deceased_status)
+table(testing$deceased_status)
+
+```
+
+
+
+```{r, echo=FALSE, include=FALSE}
+training$gender <- as.numeric(training$gender)
+training$insurance <- as.numeric(training$insurance)
+training$min_value <- as.numeric(training$min_value)
+training$max_value <- as.numeric(training$max_value)
+training$loinc_code <- as.numeric(training$loinc_code)
+
+
+testing$gender <- as.numeric(testing$gender)
+testing$insurance <- as.numeric(testing$insurance)
+testing$min_value <- as.numeric(testing$min_value)
+testing$max_value <- as.numeric(testing$max_value)
+testing$loinc_code <- as.numeric(testing$loinc_code)
+
+
+# training <- training[, -3]
+# testing <- testing[, -3]
+
+levels(training$deceased_status) <- c("F", "T")
+levels(testing$deceased_status) <- c("F", "T")
+```
+
+\newpage
+
+# Model Classifiers
+
+## Elastic Net
+```{r, echo=FALSE, include=FALSE}
+set.seed(56)
+
+
+  
+train_control <- trainControl(summaryFunction=twoClassSummary,
+                              classProbs = TRUE,
+                              method = "cv",
+                              number = 5,
+                              repeats = 3,
+                              search = "random",
+                              verboseIter = TRUE)
+
+
+
+# Train the model
+elastic_net_model <- train(deceased_status ~ .,
+                           data = training,
+                           method = "glmnet",
+                           preProcess = c("center", "scale"),
+                           metric="ROC",
+                           trControl = train_control,
+                           tuneLength = 15)
+```
+
+### Elastic Net Parameter Tunning
+```{r}
+
+elastic_net_model
+
+```
+
+\newpage
+
+### Elastic Net Confusion Matrix
+```{r, echo= FALSE}
+pred_enet <- predict(elastic_net_model, testing, type = 'prob')
+
+
+confusionMatrix(testing$deceased_status, predict(elastic_net_model, testing), positive="T")
+```
+
+### Elastic Net ROC Curve
+```{r, echo=FALSE, include=FALSE}
+elastROC <- roc(testing$deceased_status, pred_enet[, "T"])
+
+```
+
+
+```{r, echo=FALSE}
+plot.roc(elastROC, print.auc=TRUE, legacy.axes=TRUE)  
+
+```
+
+
+
+
+\newpage
+
+
+## Support Vector Machine (SVM) 
+```{r, echo=FALSE, include=FALSE}
+set.seed(56)
+
+## Using Radial Kernal
+
+trctrl <- trainControl(summaryFunction=twoClassSummary,classProbs = TRUE,# Use AUC to pick the best model
+                       savePredictions = T, method = "cv", number = 5, repeats = 3)
+
+svm_Radial <- train(deceased_status ~., data = training, method = "svmRadial",
+                      trControl=trctrl,
+                      preProcess = c("center", "scale"),
+                      metric="ROC",
+                      tuneLength = 10)
+```
+
+### SVM Parameter Tunning
+```{r, echo=FALSE}
+svm_Radial
+```
+\newpage
+
+### SVM Confusion Matrix
+```{r, echo=FALSE}
+# standardizes test data the same way as the training data 
+test_pred <- predict(svm_Radial, newdata = testing, type = "prob")
+confusionMatrix(factor(testing$deceased_status), predict(svm_Radial, newdata = testing), positive="T")
+```
+
+### SVM ROC Curve
+```{r, echo=FALSE, include=FALSE}
+svmROC <- roc(testing$deceased_status, test_pred[, "T"])
+```
+
+
+```{r, echo=FALSE}
+plot.roc(svmROC, print.auc=TRUE, legacy.axes=TRUE)  
+
+
+```
+\newpage
+
+## Decision Tree
+```{r, echo=FALSE, include=FALSE}
+set.seed(56)
+
+
+trctrl <- trainControl(summaryFunction=twoClassSummary,classProbs = TRUE,# Use AUC to pick the best model
+                       savePredictions = T, method = "cv", number = 5, repeats = 3)
+
+dtree_fit <- train(deceased_status ~., data = training, method = "rpart",
+                   parms = list(split = "information"), #information gain
+                   trControl=trctrl,  
+                   tuneLength = 15, 
+                   metric="ROC")
+```
+
+
+### Decision Tree Parameter Tunning
+```{r, echo=FALSE}
+dtree_fit
+```
+
+### Decision Tree Leafs
+```{r, echo=FALSE}
+
+prp(dtree_fit$finalModel, box.palette = "Reds")
+```
+
+\newpage
+
+### Decision Tree Confusion Matrix
+```{r, echo=FALSE}
+test_pred <- predict(dtree_fit, newdata = testing)
+confusionMatrix(factor(testing$deceased_status), test_pred, positive="T")
+```
+
+
+### Decision Tree ROC Curve
+```{r, echo=FALSE, include=FALSE}
+dtreeProbs <- predict(dtree_fit, testing, type = "prob")
+dtreeROC <- roc(testing$deceased_status, dtreeProbs[, "T"])
+```
+
+
+```{r, echo=FALSE}
+plot.roc(dtreeROC, print.auc=TRUE, legacy.axes=TRUE)  
+
+
+```
+\newpage
+
+## Random Forest
+```{r, echo=FALSE}
+set.seed(56)
+trctrl <- trainControl(summaryFunction=twoClassSummary,classProbs = TRUE,
+  savePredictions = T, method='repeatedcv', number=5, repeats=3)
+
+
+rf <- train(deceased_status ~., data = training,
+                    method = "rf",
+                    trControl=trctrl,
+                    metric="ROC",
+                    tuneLength = 3)
+```
+
+
+### Random Forest Parameter Tunning
+```{r, echo=FALSE}
+rf
+```
+
+### Random Forest Confusion Matrix
+```{r, echo=FALSE}
+test_pred <- predict(rf, newdata = testing)
+confusionMatrix(factor(testing$deceased_status), test_pred, positive="T")
+```
+
+\newpage
+
+### Random Forest ROC Curve
+```{r, echo=FALSE}
+rfProbs <- predict(rf, testing, type = "prob")
+rfROC <- roc(testing$deceased_status, rfProbs[, "T"])
+plot.roc(rfROC, print.auc=TRUE, legacy.axes=TRUE)
+
+```
+
+
+\newpage
+
+## Extreme Gradient Boosting (XGBoost) Tree
+```{r, echo=FALSE}
+set.seed(56)
+
+ctrl <- trainControl(summaryFunction=twoClassSummary,classProbs = TRUE,
+                     method = "cv", 
+                     number = 5, 
+                     repeats = 3,
+                     allowParallel = TRUE)
+
+
+
+xgb_model <- train(deceased_status ~., 
+                  data = training,
+                  method = "xgbTree",
+                  trControl = ctrl,
+                  metric = "ROC",
+                  verbose = TRUE,
+                  tuneLength = 3)
+```
+
+### XGB Parameter Tunning
+```{r, echo=FALSE}
+xgb_model
+```
+
+
+### XGB Confusion Matrix
+```{r, echo=FALSE}
+test_pred <- predict(xgb_model, newdata = testing)
+confusionMatrix(factor(testing$deceased_status), test_pred, positive="T")
+```
+
+\newpage
+
+### XGB ROC Curve
+```{r,  echo=FALSE, include=FALSE}
+xgb_probs <- predict(xgb_model, testing, type = "prob")
+xgbROC <- roc(testing$deceased_status, xgb_probs[, "T"])
+```
+
+
+```{r,  echo=FALSE}
+plot.roc(xgbROC, print.auc=TRUE, legacy.axes=TRUE)
+```
+
+
+\newpage
+
+# Summary
+
+
+## Results with Imbalanced Original Data 
+```{r, echo=FALSE, out.width = '100%'}
+knitr::include_graphics("/Users/student1/Downloads/results_without_smote.png")
+```
+
+## Results with Balanced Data
+```{r, echo=FALSE}
+
+
+
+df <- data.frame(
+  Model = c("ElasticNet","DecisionTree", "SVM","RandomForest","XGB"),
+  ROC = c(elastROC$auc, dtreeROC$auc, svmROC$auc,rfROC$auc,xgbROC$auc)
+
+)
+
+
+ggplot(df, aes(x=Model, y=ROC, fill = Model)) + 
+  geom_bar(stat = "identity") + 
+  geom_text(aes(label=format(round(df$ROC, 2))), vjust=0) +
+   scale_fill_brewer(palette = "Set1") +
+  theme(legend.position="right") + 
+  ggtitle("Model Classifiers Performance For MIMIC III Lung Cancer Patients") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+```
+
